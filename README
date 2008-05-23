@@ -1,0 +1,23 @@
+$Id: README 8455 2006-04-28 06:55:41Z lha $
+
+Author
+
+	Love Hörnquist Åstrand <lha@it.su.se>
+
+Sample configuration
+
+	LoadModule spnego_module /usr/pkg/lib/httpd/mod_spnego.so
+
+	<Directory "/my/spnego/dir">
+		AuthType SPNEGO
+		SPNEGOAuth On
+		SPNEGOAuthSaveDelegatedCred On
+		SPNEGOAuthKrb5AcceptorIdentity /etc/krb5.keytab.www
+		SPNEGOUseDisplayName off
+		Require valid-user
+	</Directory>
+
+Left todo
+
+	autoconf all silly headerfiles (for krb5 functions)
+
