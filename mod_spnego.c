@@ -122,7 +122,7 @@ k5_save(request_rec * r, gss_cred_id_t cred)
 	fn = apr_psprintf(r->pool, "FILE:%s", krb5_cc_get_name(kcontext, id));
 
 	krb5_cc_close(kcontext, id);
-	ap_table_set(r->subprocess_env, "KRB5CCNAME", fn);
+	apr_table_set(r->subprocess_env, "KRB5CCNAME", fn);
     }
 
     krb5_free_context(kcontext);
@@ -175,18 +175,18 @@ access_checker(request_rec * r)
     p = apr_table_get(r->headers_in, "Authorization");
 
     if (p == NULL) {
-	ap_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
 	return HTTP_UNAUTHORIZED;
     }
 
     q = ap_getword_white(r->pool, &p);
     if (q == NULL || strcmp(q, NEGOTIATE_NAME) != 0) {
-	ap_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
 	return HTTP_UNAUTHORIZED;
     }
 
-    in.value = apr_palloc(r->pool, ap_base64decode_len(p));
-    in.length = apr_base64decode_binary(in.value, p);
+    in.value = apr_palloc(r->pool, apr_base64_decode_len(p));
+    in.length = apr_base64_decode_binary(in.value, p);
 
     out.length = 0;
     out.value = NULL;
@@ -195,7 +195,7 @@ access_checker(request_rec * r)
 
 #ifdef HAVE_KRB5
     if (c->spnego_krb5_acceptor_identity)
-	gsskrb5_register_acceptor_identity(c->spnego_krb5_acceptor_identity);
+	krb5_gss_register_acceptor_identity(c->spnego_krb5_acceptor_identity);
 #endif
 
     maj_stat = gss_accept_sec_context(&min_stat,
@@ -222,9 +222,9 @@ access_checker(request_rec * r)
 				 &message_context,
 				 &error);
 	if (ret == 0)
-	    apr_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, r,
-			   "mod_spnego: accept_sec_context %d/%d: %s", 
-			   maj_stat, min_stat, (char *)error.value);
+	    ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
+			  "mod_spnego: accept_sec_context %d/%d: %s", 
+			  maj_stat, min_stat, (char *)error.value);
 	
 	ret = HTTP_UNAUTHORIZED;
 	goto out;
@@ -254,27 +254,27 @@ access_checker(request_rec * r)
 	}
     
 	user = apr_palloc(r->connection->pool, 
-			  ap_base64encode_len(name.length));
-	apr_base64encode(user, name.value, name.length);
+			  apr_base64_encode_len(name.length));
+	apr_base64_encode(user, name.value, name.length);
 
 	gss_release_buffer(&min_stat, &name);
     }
     r->user = user;
     r->ap_auth_type = apr_pstrdup(r->connection->pool, NEGOTIATE_NAME);
 
-    ap_table_set(r->subprocess_env, "NEGOTIATE_INITIATOR_NAME", user);
+    apr_table_set(r->subprocess_env, "NEGOTIATE_INITIATOR_NAME", user);
 
     if (out.length) {
 	size_t len;
-	reply = apr_palloc(r->pool, ap_base64encode_len(out.length) + 2);
+	reply = apr_palloc(r->pool, apr_base64_encode_len(out.length) + 2);
 	reply[0] = ' ';
-	len = apr_base64encode(reply + 1, out.value, out.length);
+	len = apr_base64_encode(reply + 1, out.value, out.length);
 	reply[len + 1] = '\0';
     } else
 	reply = "";
     
-    ap_table_setn(r->headers_out, WWW_AUTHENTICATE,
-		  apr_pstrcat(r->pool, NEGOTIATE_NAME, reply, NULL));
+    apr_table_setn(r->headers_out, WWW_AUTHENTICATE,
+		   apr_pstrcat(r->pool, NEGOTIATE_NAME, reply, NULL));
 
     ret = OK;
 
