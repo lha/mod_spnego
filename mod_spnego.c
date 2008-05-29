@@ -51,8 +51,15 @@ extern module AP_MODULE_DECLARE_DATA spnego_module;
 #define NEGOTIATE_NAME "Negotiate"
 #define WWW_AUTHENTICATE "WWW-Authenticate"
 
+#define SPNEGO_DEBUG(c, r, ...)						\
+	do { if (c->spnego_debug) {					\
+		ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR,	\
+			      0, r, __VA_ARGS__); }			\
+	} while (0)
+
 typedef struct {
     unsigned int spnego_on;
+    unsigned int spnego_debug;
     char *spnego_name;
     unsigned int spnego_save_cred;
     char *spnego_krb5_acceptor_identity;
@@ -64,17 +71,22 @@ static const command_rec spnego_cmds[] = {
     AP_INIT_FLAG("SPNEGOAuth",
 		 ap_set_flag_slot,
 		 (void *)APR_OFFSETOF(spnego_config, spnego_on),
-		 OR_AUTHCFG | RSRC_CONF,
-		 "set to 'on' to activate SPNEGO authentication here"),
+		 OR_AUTHCFG,
+		 "set to 'on' to activate SPNEGO authentication"),
+    AP_INIT_FLAG("SPNEGODebug",
+		 ap_set_flag_slot,
+		 (void *)APR_OFFSETOF(spnego_config, spnego_debug),
+		 OR_AUTHCFG,
+		 "set to 'on' to activate SPNEGO debuging"),
     AP_INIT_TAKE1("SPNEGOAuthAcceptorName",
 		  ap_set_string_slot,
 		  (void *)APR_OFFSETOF(spnego_config, spnego_name),
-		  OR_AUTHCFG | RSRC_CONF,
+		  OR_AUTHCFG,
 		  "The acceptor name imported into the GSS-API library"),
     AP_INIT_FLAG("SPNEGOAuthSaveDelegatedCred",
 		 ap_set_flag_slot,
 		 (void *)APR_OFFSETOF(spnego_config, spnego_save_cred),
-		 OR_AUTHCFG | RSRC_CONF,
+		 OR_AUTHCFG,
 		 "set to 'on' to save delegated gss-api authentication "
 		 "(requires non standard API support from gssapi)"),
 
@@ -82,17 +94,34 @@ static const command_rec spnego_cmds[] = {
 		  ap_set_string_slot,
 		  (void *)APR_OFFSETOF(spnego_config, 
 				       spnego_krb5_acceptor_identity),
-		  OR_AUTHCFG | RSRC_CONF,
+		  OR_AUTHCFG,
 		  "set to Kerberos 5 keytab filename "
 		  "(valid iff compiled with krb5 support)"),
     AP_INIT_FLAG("SPNEGOUseDisplayName",
 		 ap_set_flag_slot,
 		 (void *)APR_OFFSETOF(spnego_config, spnego_use_display_name),
-		 OR_AUTHCFG | RSRC_CONF,
+		 OR_AUTHCFG,
 		 "set to 'on' to make SPNEGO use display name instead of "
 		 "export name in REMOTE_USER"),
     { NULL }
 };
+
+static void *
+spnego_dir_config(apr_pool_t * p, char *d)
+{
+    spnego_config *conf = (spnego_config *) apr_pcalloc(p, sizeof(spnego_config));
+
+    /* Set the defaults. */
+
+    conf->spnego_on = 0;
+    conf->spnego_name = NULL;
+    conf->spnego_save_cred = 0;
+    conf->spnego_krb5_acceptor_identity = NULL;
+    conf->spnego_use_display_name = 1;
+
+    return conf;
+}
+
 
 static void
 k5_save(request_rec * r, gss_cred_id_t cred)
@@ -154,7 +183,7 @@ find_mech(gss_OID oid)
 }
 
 static int 
-access_checker(request_rec * r)
+check_user_id(request_rec *r)
 {
     const struct mech_specific *m;
     OM_uint32 maj_stat, min_stat;
@@ -173,14 +202,15 @@ access_checker(request_rec * r)
 	return DECLINED;
 
     p = apr_table_get(r->headers_in, "Authorization");
-
     if (p == NULL) {
+	SPNEGO_DEBUG(c, r, "mod_spnego: no Authorization header");
 	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
 	return HTTP_UNAUTHORIZED;
     }
 
     q = ap_getword_white(r->pool, &p);
     if (q == NULL || strcmp(q, NEGOTIATE_NAME) != 0) {
+	SPNEGO_DEBUG(c, r, "mod_spnego: Authorization header malformated");
 	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
 	return HTTP_UNAUTHORIZED;
     }
@@ -198,6 +228,9 @@ access_checker(request_rec * r)
 	krb5_gss_register_acceptor_identity(c->spnego_krb5_acceptor_identity);
 #endif
 
+    ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
+		  "mod_spnego: called");
+
     maj_stat = gss_accept_sec_context(&min_stat,
 				      &ctx,
 				      GSS_C_NO_CREDENTIAL,
@@ -210,10 +243,30 @@ access_checker(request_rec * r)
 				      NULL,
 				      &delegated_cred_handle);
 
-    /* XXX */
-    if ((maj_stat & GSS_S_CONTINUE_NEEDED) || maj_stat != GSS_S_COMPLETE) {
+    if ((maj_stat & GSS_S_CONTINUE_NEEDED)) {
+	ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
+		      "mod_spnego: continue needed, bad mech selected",
+		      maj_stat, min_stat);
+    } else if (maj_stat != GSS_S_COMPLETE) {
 	OM_uint32 message_context = 0, min_stat2, ret;
 	gss_buffer_desc error;
+
+	ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
+		      "mod_spnego: accept_sec_context %d/%d",
+		      maj_stat, min_stat);
+	
+	ret = gss_display_status(&min_stat2,
+				 maj_stat, 
+				 GSS_C_GSS_CODE,
+				 GSS_C_NO_OID,
+				 &message_context,
+				 &error);
+	if (ret == GSS_S_COMPLETE) {
+	    ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
+			  "mod_spnego: major: %.*s", 
+			  (int)error.length, (char *)error.value);
+	    gss_release_buffer(&min_stat2, &error);
+	}
 	
 	ret = gss_display_status(&min_stat2,
 				 min_stat, 
@@ -221,11 +274,13 @@ access_checker(request_rec * r)
 				 GSS_C_NO_OID,
 				 &message_context,
 				 &error);
-	if (ret == 0)
+	if (ret == GSS_S_COMPLETE) {
 	    ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
-			  "mod_spnego: accept_sec_context %d/%d: %s", 
-			  maj_stat, min_stat, (char *)error.value);
-	
+			  "mod_spnego: minor: %.*s", 
+			  (int)error.length, (char *)error.value);
+	    gss_release_buffer(&min_stat2, &error);
+	}
+
 	ret = HTTP_UNAUTHORIZED;
 	goto out;
     }
@@ -235,6 +290,7 @@ access_checker(request_rec * r)
 
 	maj_stat = gss_display_name(&min_stat, src_name, &name, NULL);
 	if (maj_stat != GSS_S_COMPLETE) {
+	    SPNEGO_DEBUG(c, r, "mod_spnego: failed to display name");
 	    ret = HTTP_UNAUTHORIZED;
 	    goto out;
 	}
@@ -249,6 +305,7 @@ access_checker(request_rec * r)
 
 	maj_stat = gss_export_name(&min_stat, src_name, &name);
 	if (maj_stat != GSS_S_COMPLETE) {
+	    SPNEGO_DEBUG(c, r, "mod_spnego: failed to export name");
 	    ret = HTTP_UNAUTHORIZED;
 	    goto out;
 	}
@@ -285,6 +342,7 @@ access_checker(request_rec * r)
     }
 
  out:
+    SPNEGO_DEBUG(c, r, "mod_spnego: done: %x/%x", maj_stat, min_stat);
     if (src_name != GSS_C_NO_NAME)
 	gss_release_name(&min_stat, &src_name);
     if (ctx != GSS_C_NO_CONTEXT)
@@ -297,17 +355,31 @@ access_checker(request_rec * r)
     return ret;
 }
 
+static int
+post_config(apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server_rec *s)
+{
+    /* 
+     * turn off the reply cache, it just hurts us since browsers are
+     * too fast and does the wrong thing.
+     *
+     * XXX should force running over https.
+     */
+    putenv(strdup("KRB5RCACHETYPE=none"));
+    return OK;
+}
+
 static void
 mod_spnego_register_hooks (apr_pool_t *p)
 {
-    ap_hook_check_user_id(access_checker, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_post_config(post_config, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_check_user_id(check_user_id, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 
 module AP_MODULE_DECLARE_DATA spnego_module =
 {
   STANDARD20_MODULE_STUFF,
-  NULL,
+  spnego_dir_config,
   NULL,
   NULL,
   NULL,
