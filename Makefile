@@ -22,5 +22,5 @@ install:
 	$(APXS) -i mod_spnego.la
 
 clean:
-	rm -f mod_spnego.so *.o *~ core *.core *.slo *.lo *.la .git
+	rm -f mod_spnego.so *.o *~ core *.core *.slo *.lo *.la
 	rm -rf .libs
