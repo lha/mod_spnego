@@ -52,7 +52,7 @@ extern module AP_MODULE_DECLARE_DATA spnego_module;
 
 static const char *NEGOTIATE_NAME = "Negotiate";
 static const char *NTLM_NAME = "NTLM";
-#define WWW_AUTHENTICATE "WWW-Authenticate"
+static const char *WWW_AUTHENTICATE = "WWW-Authenticate";
 
 #define SPNEGO_DEBUG(c, r, ...)						\
 	do { if (c->spnego_debug) {					\
@@ -208,23 +208,23 @@ check_user_id(request_rec *r)
     p = apr_table_get(r->headers_in, "Authorization");
     if (p == NULL) {
 	SPNEGO_DEBUG(c, r, "mod_spnego: no Authorization header");
-	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
-	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
+	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
 	return HTTP_UNAUTHORIZED;
     }
 
     mech = ap_getword_white(r->pool, &p);
     if (mech == NULL) {
 	SPNEGO_DEBUG(c, r, "mod_spnego: Authorization header malformated");
-	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
-	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
+	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
 	return HTTP_UNAUTHORIZED;
     }
 
     if (strcmp(mech, NEGOTIATE_NAME) != 0 && strcmp(mech, NTLM_NAME) != 0) {
 	SPNEGO_DEBUG(c, r, "mod_spnego: auth not support: %s", mech);
-	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
-	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
+	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
 	return HTTP_UNAUTHORIZED;
     }
 
