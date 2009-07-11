@@ -191,7 +191,7 @@ check_user_id(request_rec *r)
     const struct mech_specific *m;
     OM_uint32 maj_stat, min_stat;
     gss_buffer_desc in, out;
-    gss_cred_id_t delegated_cred_handle;
+    gss_cred_id_t delegated_cred_handle = NULL;
     gss_name_t src_name = GSS_C_NO_NAME;
     gss_ctx_id_t ctx = GSS_C_NO_CONTEXT;
     spnego_config *c;
@@ -233,8 +233,6 @@ check_user_id(request_rec *r)
 
     out.length = 0;
     out.value = NULL;
-
-    delegated_cred_handle = NULL;
 
 #ifdef HAVE_KRB5
     if (c->spnego_krb5_acceptor_identity)
@@ -358,7 +356,7 @@ check_user_id(request_rec *r)
 	len = apr_base64_encode(reply + 1, out.value, out.length);
 	reply[len + 1] = '\0';
     } else
-	reply = "";
+	reply = NULL;
     
     apr_table_setn(r->headers_out, WWW_AUTHENTICATE,
 		   apr_pstrcat(r->pool, mech, reply, NULL));
