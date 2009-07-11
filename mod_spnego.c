@@ -40,15 +40,18 @@
 #include <apr_strings.h>
 #include <apr_tables.h>
 
+#ifdef HEIMDAL_FRAMEWORK
+#include <Heimdal/gssapi.h>
+#include <Heimdal/krb5.h>
+#else
 #include <gssapi.h>
-
-#ifdef HAVE_KRB5
 #include <krb5.h>
 #endif
 
 extern module AP_MODULE_DECLARE_DATA spnego_module;
 
-#define NEGOTIATE_NAME "Negotiate"
+static const char *NEGOTIATE_NAME = "Negotiate";
+static const char *NTLM_NAME = "NTLM";
 #define WWW_AUTHENTICATE "WWW-Authenticate"
 
 #define SPNEGO_DEBUG(c, r, ...)						\
@@ -196,6 +199,7 @@ check_user_id(request_rec *r)
     char *user, *reply;
     gss_OID oid;
     int ret;
+    const char *mech = "unknown";
 
     c = ap_get_module_config(r->per_dir_config, &spnego_module);
     if (c == NULL || !c->spnego_on)
@@ -205,13 +209,22 @@ check_user_id(request_rec *r)
     if (p == NULL) {
 	SPNEGO_DEBUG(c, r, "mod_spnego: no Authorization header");
 	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
 	return HTTP_UNAUTHORIZED;
     }
 
-    q = ap_getword_white(r->pool, &p);
-    if (q == NULL || strcmp(q, NEGOTIATE_NAME) != 0) {
+    mech = ap_getword_white(r->pool, &p);
+    if (mech == NULL) {
 	SPNEGO_DEBUG(c, r, "mod_spnego: Authorization header malformated");
 	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
+	return HTTP_UNAUTHORIZED;
+    }
+
+    if (strcmp(mech, NEGOTIATE_NAME) != 0 && strcmp(mech, NTLM_NAME) != 0) {
+	SPNEGO_DEBUG(c, r, "mod_spnego: auth not support: %s", mech);
+	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+	apr_table_setn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
 	return HTTP_UNAUTHORIZED;
     }
 
@@ -228,8 +241,7 @@ check_user_id(request_rec *r)
 	krb5_gss_register_acceptor_identity(c->spnego_krb5_acceptor_identity);
 #endif
 
-    ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
-		  "mod_spnego: called");
+    SPNEGO_DEBUG(c, r, "mod_spnego: calling ASC");
 
     maj_stat = gss_accept_sec_context(&min_stat,
 				      &ctx,
@@ -244,9 +256,9 @@ check_user_id(request_rec *r)
 				      &delegated_cred_handle);
 
     if ((maj_stat & GSS_S_CONTINUE_NEEDED)) {
-	ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
-		      "mod_spnego: continue needed, bad mech selected",
-		      maj_stat, min_stat);
+	SPNEGO_DEBUG(c, r, "mod_spnego: continue needed, bad mech selected: %d", (int)out.length);
+	ret = HTTP_UNAUTHORIZED;
+	goto reply;
     } else if (maj_stat != GSS_S_COMPLETE) {
 	OM_uint32 message_context = 0, min_stat2, ret;
 	gss_buffer_desc error;
@@ -285,6 +297,14 @@ check_user_id(request_rec *r)
 	goto out;
     }
 				      
+    if (src_name == NULL) {
+	ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
+		      "mod_spnego: mech exported no src_name, failing",
+		      maj_stat, min_stat);
+	ret = HTTP_UNAUTHORIZED;
+	goto out;
+    }
+
     if (c->spnego_use_display_name) {
 	gss_buffer_desc name;
 
@@ -319,8 +339,18 @@ check_user_id(request_rec *r)
     r->user = user;
     r->ap_auth_type = apr_pstrdup(r->connection->pool, NEGOTIATE_NAME);
 
+    apr_table_set(r->subprocess_env, "NEGOTIATE_MECH", mech);
     apr_table_set(r->subprocess_env, "NEGOTIATE_INITIATOR_NAME", user);
 
+    if (delegated_cred_handle && c->spnego_save_cred) {
+	m = find_mech(oid);
+	if (m && m->save_cred)
+	    (*m->save_cred)(r, delegated_cred_handle);
+    }
+
+    ret = OK;
+
+ reply:
     if (out.length) {
 	size_t len;
 	reply = apr_palloc(r->pool, apr_base64_encode_len(out.length) + 2);
@@ -331,18 +361,10 @@ check_user_id(request_rec *r)
 	reply = "";
     
     apr_table_setn(r->headers_out, WWW_AUTHENTICATE,
-		   apr_pstrcat(r->pool, NEGOTIATE_NAME, reply, NULL));
-
-    ret = OK;
-
-    if (delegated_cred_handle && c->spnego_save_cred) {
-	m = find_mech(oid);
-	if (m && m->save_cred)
-	    (*m->save_cred)(r, delegated_cred_handle);
-    }
+		   apr_pstrcat(r->pool, mech, reply, NULL));
 
  out:
-    SPNEGO_DEBUG(c, r, "mod_spnego: done: %x/%x", maj_stat, min_stat);
+    SPNEGO_DEBUG(c, r, "mod_spnego: %s: done: %x/%x", mech, maj_stat, min_stat);
     if (src_name != GSS_C_NO_NAME)
 	gss_release_name(&min_stat, &src_name);
     if (ctx != GSS_C_NO_CONTEXT)
