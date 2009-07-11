@@ -1,0 +1,5 @@
+.libs
+mod_spnego.la
+mod_spnego.lo
+mod_spnego.o
+mod_spnego.slo
