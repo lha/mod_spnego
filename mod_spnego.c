@@ -203,6 +203,7 @@ ctx_cleanup(void *data)
     gss_release_cred(&junk, &ctx->cred);
     gss_delete_sec_context(&junk, &ctx->ctx, GSS_C_NO_BUFFER);
     free(ctx);
+    return 0;
 }
 
 static struct spnego_ctx *
@@ -231,7 +232,7 @@ check_user_id(request_rec *r)
     gss_name_t src_name = GSS_C_NO_NAME;
     struct spnego_ctx *ctx = NULL;
     spnego_config *c;
-    const char *p, *q;
+    const char *p;
     char *reply;
     gss_OID oid;
     int ret;
@@ -300,7 +301,7 @@ check_user_id(request_rec *r)
 	    ret = HTTP_UNAUTHORIZED;
 	    goto reply;
 	} else if (maj_stat != GSS_S_COMPLETE) {
-	    OM_uint32 message_context = 0, junk, ret;
+	    OM_uint32 message_context = 0, junk, ret2;
 	    gss_buffer_desc error;
 	    
 	    if (ctx->ctx)
@@ -310,26 +311,26 @@ check_user_id(request_rec *r)
 			  "mod_spnego: accept_sec_context %d/%d",
 			  maj_stat, min_stat);
 	    
-	    ret = gss_display_status(&junk,
+	    ret2 = gss_display_status(&junk,
 				     maj_stat, 
-				     GSS_C_GSS_CODE,
-				     GSS_C_NO_OID,
-				     &message_context,
-				     &error);
-	    if (ret == GSS_S_COMPLETE) {
+				      GSS_C_GSS_CODE,
+				      GSS_C_NO_OID,
+				      &message_context,
+				      &error);
+	    if (ret2 == GSS_S_COMPLETE) {
 		ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
 			      "mod_spnego: major: %.*s", 
 			      (int)error.length, (char *)error.value);
 		gss_release_buffer(&junk, &error);
 	    }
 	    
-	    ret = gss_display_status(&junk,
-				     min_stat, 
-				     GSS_C_MECH_CODE, 
-				     GSS_C_NO_OID,
-				     &message_context,
-				     &error);
-	    if (ret == GSS_S_COMPLETE) {
+	    ret2 = gss_display_status(&junk,
+				      min_stat, 
+				      GSS_C_MECH_CODE, 
+				      GSS_C_NO_OID,
+				      &message_context,
+				      &error);
+	    if (ret2 == GSS_S_COMPLETE) {
 		ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_ERR, 0, r,
 			      "mod_spnego: minor: %.*s", 
 			      (int)error.length, (char *)error.value);
@@ -390,7 +391,7 @@ check_user_id(request_rec *r)
 
  reply:
     if (out.length) {
-	size_t len, len2;
+	size_t len;
 	len = apr_base64_encode_len(out.length);
 	reply = apr_palloc(r->pool, len + 1);
 	apr_base64_encode(reply, out.value, out.length);
