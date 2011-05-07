@@ -1,12 +1,11 @@
-# $Id: Makefile 3399 2004-04-05 20:21:52Z lha $
 
-CPPFLAGS= -Wc,-F/System/Library/PrivateFrameworks
-LIBS= -Wl,-F/System/Library/PrivateFrameworks -framework Heimdal
-KRB5=-DHAVE_KRB5 -DHEIMDAL_FRAMEWORK
+#CPPFLAGS= -Wc,-F/System/Library/PrivateFrameworks
+#LIBS= -Wl,-F/System/Library/PrivateFrameworks -framework Heimdal
+#KRB5=-DHAVE_KRB5 -DHEIMDAL_FRAMEWORK
 
-#CPPFLAGS= `krb5-config --cflags gssapi`
-#LIBS= `krb5-config --libs gssapi`
-#KRB5=-DHAVE_KRB5
+CPPFLAGS= `krb5-config --cflags gssapi`
+LIBS= `krb5-config --libs gssapi`
+KRB5=-DHAVE_KRB5
 
 ARCHS=i386 x86_64
 
