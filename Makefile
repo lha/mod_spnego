@@ -1,4 +1,3 @@
-
 #CPPFLAGS= -Wc,-F/System/Library/PrivateFrameworks
 #LIBS= -Wl,-F/System/Library/PrivateFrameworks -framework Heimdal
 #KRB5=-DHAVE_KRB5 -DHEIMDAL_FRAMEWORK
@@ -9,8 +8,15 @@ KRB5=-DHAVE_KRB5
 
 ARCHS=i386 x86_64
 
-CFLAGS = -Wc,-g $(foreach arch,$(ARCHS),"-Wc,-arch $(arch)")
-LDFLAGS = -Wl,-g $(foreach arch,$(ARCHS),"-Wl,-arch $(arch)")
+UNAME := $(shell uname)
+
+ifeq ($(UNAME), Darwin)
+  CFLAGS = -Wc,-g $(foreach arch,$(ARCHS),"-Wc,-arch $(arch)")
+  LDFLAGS = -Wl,-g $(foreach arch,$(ARCHS),"-Wl,-arch $(arch)")
+else
+  CFLAGS = -Wc,-g
+  LDFLAGS = -Wl,-g
+endif
 
 APXS = apxs
 
