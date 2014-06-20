@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004 - 2008 Kungliga Tekniska Högskolan
+ * Copyright (c) 2004-2008 Kungliga Tekniska HÃ¶gskolan
  * (Royal Institute of Technology, Stockholm, Sweden). 
  * All rights reserved. 
  *
@@ -80,7 +80,7 @@ static const command_rec spnego_cmds[] = {
 		 ap_set_flag_slot,
 		 (void *)APR_OFFSETOF(spnego_config, spnego_debug),
 		 OR_AUTHCFG,
-		 "set to 'on' to activate SPNEGO debuging"),
+		 "set to 'on' to activate SPNEGO debugging"),
     AP_INIT_TAKE1("SPNEGOAuthAcceptorName",
 		  ap_set_string_slot,
 		  (void *)APR_OFFSETOF(spnego_config, spnego_name),
@@ -90,16 +90,15 @@ static const command_rec spnego_cmds[] = {
 		 ap_set_flag_slot,
 		 (void *)APR_OFFSETOF(spnego_config, spnego_save_cred),
 		 OR_AUTHCFG,
-		 "set to 'on' to save delegated gss-api authentication "
-		 "(requires non standard API support from gssapi)"),
-
+		 "set to 'on' to save delegated GSS credential "
+		 "(requires non standard API support from GSS-API)"),
     AP_INIT_TAKE1("SPNEGOAuthKrb5AcceptorIdentity",
 		  ap_set_string_slot,
 		  (void *)APR_OFFSETOF(spnego_config, 
 				       spnego_krb5_acceptor_identity),
 		  OR_AUTHCFG,
 		  "set to Kerberos 5 keytab filename "
-		  "(valid iff compiled with krb5 support)"),
+		  "(valid if compiled with Kerberos 5 support)"),
     AP_INIT_FLAG("SPNEGOUseDisplayName",
 		 ap_set_flag_slot,
 		 (void *)APR_OFFSETOF(spnego_config, spnego_use_display_name),
@@ -252,14 +251,14 @@ check_user_id(request_rec *r)
 
     mech = ap_getword_white(r->pool, &p);
     if (mech == NULL) {
-	SPNEGO_DEBUG(c, r, "mod_spnego: Authorization header malformated");
+	SPNEGO_DEBUG(c, r, "mod_spnego: Authorization header malformed");
 	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
 	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
 	return HTTP_UNAUTHORIZED;
     }
 
     if (strcmp(mech, NEGOTIATE_NAME) != 0 && strcmp(mech, NTLM_NAME) != 0) {
-	SPNEGO_DEBUG(c, r, "mod_spnego: auth not support: %s", mech);
+	SPNEGO_DEBUG(c, r, "mod_spnego: auth not supported: %s", mech);
 	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
 	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
 	return HTTP_UNAUTHORIZED;
@@ -282,7 +281,7 @@ check_user_id(request_rec *r)
 
     if (!ctx->auth_done) {
 
-	SPNEGO_DEBUG(c, r, "mod_spnego: calling ASC");
+	SPNEGO_DEBUG(c, r, "mod_spnego: calling accept_sec_context");
 	
 	maj_stat = gss_accept_sec_context(&min_stat,
 					  &ctx->ctx,
