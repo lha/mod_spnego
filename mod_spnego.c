@@ -209,11 +209,11 @@ ctx_cleanup(void *data)
 }
 
 static struct spnego_ctx *
-get_gss_context(conn_rec *c, const char *mech)
+get_gss_context(conn_rec *c, const char *mech, int put_if_absent)
 {
     struct spnego_ctx *ctx = NULL;
     apr_pool_userdata_get((void **) &ctx, MOD_SPNEGO_KEY, c->pool);
-    if (ctx == NULL) {
+    if (ctx == NULL && put_if_absent) {
         ctx = calloc(1, sizeof(*ctx));
         if (ctx == NULL)
             return NULL;
@@ -244,6 +244,18 @@ check_user_id(request_rec *r)
     c = ap_get_module_config(r->per_dir_config, &spnego_module);
     if (c == NULL || !c->spnego_on)
         return DECLINED;
+
+    SPNEGO_DEBUG(c, r, "mod_spnego: authenticating %s on connection %d",
+        ap_is_initial_req(r) ? "main request" : "subrequest",
+        r->connection->id);
+
+    ctx = get_gss_context(r->connection, mech, 0);
+    if (ctx != NULL && ctx->auth_done) {
+        SPNEGO_DEBUG(c, r, "mod_spnego: already authenticated");
+        r->user = ctx->user;
+        r->ap_auth_type = ctx->mech;
+        return OK;
+    }
 
     p = apr_table_get(r->headers_in, "Authorization");
     if (p == NULL) {
@@ -292,7 +304,7 @@ check_user_id(request_rec *r)
         krb5_gss_register_acceptor_identity(c->spnego_krb5_acceptor_identity);
 #endif
 
-    ctx = get_gss_context(r->connection, mech);
+    ctx = get_gss_context(r->connection, mech, 1);
     if (ctx == NULL)
         return HTTP_UNAUTHORIZED;
 
