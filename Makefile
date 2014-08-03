@@ -1,6 +1,6 @@
 #CPPFLAGS= -Wc,-F/System/Library/PrivateFrameworks
 #LIBS= -Wl,-F/System/Library/PrivateFrameworks -framework Heimdal
-#KRB5=-DHAVE_KRB5 -DHEIMDAL_FRAMEWORK
+#KRB5=-DHAVE_KRB5 -DHAVE_HEIMDAL
 
 CPPFLAGS= `krb5-config --cflags gssapi`
 LIBS= `krb5-config --libs gssapi`

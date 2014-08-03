@@ -40,7 +40,7 @@
 #include <apr_strings.h>
 #include <apr_tables.h>
 
-#ifdef HEIMDAL_FRAMEWORK
+#ifdef HAVE_HEIMDAL
 #include <Heimdal/gssapi.h>
 #include <Heimdal/krb5.h>
 #else
@@ -51,7 +51,9 @@
 extern module AP_MODULE_DECLARE_DATA spnego_module;
 
 static const char *NEGOTIATE_NAME = "Negotiate";
+#ifdef HAVE_HEIMDAL
 static const char *NTLM_NAME = "NTLM";
+#endif
 static const char *WWW_AUTHENTICATE = "WWW-Authenticate";
 
 #define SPNEGO_DEBUG(c, r, ...)						\
@@ -245,7 +247,9 @@ check_user_id(request_rec *r)
     if (p == NULL) {
 	SPNEGO_DEBUG(c, r, "mod_spnego: no Authorization header");
 	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+#ifdef HAVE_HEIMDAL
 	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
+#endif
 	return HTTP_UNAUTHORIZED;
     }
 
@@ -253,14 +257,25 @@ check_user_id(request_rec *r)
     if (mech == NULL) {
 	SPNEGO_DEBUG(c, r, "mod_spnego: Authorization header malformed");
 	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+#ifdef HAVE_HEIMDAL
 	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
+#endif
 	return HTTP_UNAUTHORIZED;
     }
 
-    if (strcmp(mech, NEGOTIATE_NAME) != 0 && strcmp(mech, NTLM_NAME) != 0) {
-	SPNEGO_DEBUG(c, r, "mod_spnego: auth not supported: %s", mech);
+	int mechs_not_matched;
+
+#ifdef HAVE_HEIMDAL
+    mechs_not_matched = strcmp(mech, NEGOTIATE_NAME) != 0 && strcmp(mech, NTLM_NAME) != 0;
+#else
+    mechs_not_matched = strcmp(mech, NEGOTIATE_NAME) != 0;
+#endif
+	if (mechs_not_matched) {
+	SPNEGO_DEBUG(c, r, "mod_spnego: mech not supported: %s", mech);
 	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
+#ifdef HAVE_HEIMDAL
 	apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
+#endif
 	return HTTP_UNAUTHORIZED;
     }
 
