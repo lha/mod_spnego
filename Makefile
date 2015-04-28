@@ -2,8 +2,10 @@
 #LIBS= -Wl,-F/System/Library/PrivateFrameworks -framework Heimdal
 #KRB5=-DHAVE_KRB5 -DHAVE_HEIMDAL
 
-CPPFLAGS= `krb5-config --cflags gssapi`
-LIBS= `krb5-config --libs gssapi`
+KRB5_CONFIG=krb5-config
+
+CPPFLAGS=`$(KRB5_CONFIG) --cflags gssapi`
+LIBS=`$(KRB5_CONFIG) --libs gssapi`
 KRB5=-DHAVE_KRB5
 
 ARCHS=i386 x86_64
