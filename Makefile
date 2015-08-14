@@ -1,23 +1,30 @@
-#CPPFLAGS= -Wc,-F/System/Library/PrivateFrameworks
-#LIBS= -Wl,-F/System/Library/PrivateFrameworks -framework Heimdal
-#KRB5=-DHAVE_KRB5 -DHAVE_HEIMDAL
 
 KRB5_CONFIG=krb5-config
-
-CPPFLAGS=`$(KRB5_CONFIG) --cflags gssapi`
-LIBS=`$(KRB5_CONFIG) --libs gssapi`
-KRB5=-DHAVE_KRB5
-
-ARCHS=i386 x86_64
 
 UNAME := $(shell uname)
 
 ifeq ($(UNAME), Darwin)
+  ARCHS=i386 x86_64
+
+  SDKPATH=$(shell xcrun --show-sdk-path)
+
   CFLAGS = -Wc,-g $(foreach arch,$(ARCHS),"-Wc,-arch $(arch)")
-  LDFLAGS = -Wl,-g $(foreach arch,$(ARCHS),"-Wl,-arch $(arch)")
+  LDFLAGS = -Wl,-g $(foreach arch,$(ARCHS),"-Wl,-arch $(arch)") -Wl,-framework,GSS
+  KRB5=-DHAVE_GSS_FRAMEWORK -DHAVE_HEIMDAL
+
+  CFLAGS += -I$(SDKPATH)/usr/include/apr-1
+  CFLAGS += -I$(SDKPATH)/usr/include/apache2
+  CFLAGS += "-Wc,-isystem $(SDKPATH)/usr/include"
+  CFLAGS += "-Wc,-F$(SDKPATH)/System/Library/Frameworks"
+
+  LDFLAGS += "-Wl,-F$(SDKPATH)/System/Library/Frameworks"
+
 else
   CFLAGS = -Wc,-g
   LDFLAGS = -Wl,-g
+  CPPFLAGS= `krb5-config --cflags gssapi krb5`
+  LIBS= `krb5-config --libs gssapi krb5`
+  KRB5=-DHAVE_KRB5
 endif
 
 APXS = apxs

@@ -34,13 +34,14 @@
 #include <httpd.h>
 #include <http_config.h>
 #include <http_log.h>
+#include <http_request.h>
 #include <mod_auth.h>
 #include <apr_strings.h>
 #include <apr_tables.h>
+#include <apr_base64.h>
 
-#ifdef HAVE_HEIMDAL
-#include <Heimdal/gssapi.h>
-#include <Heimdal/krb5.h>
+#ifdef HAVE_GSS_FRAMEWORK
+#include <GSS/gssapi.h>
 #else
 #include <gssapi.h>
 #include <krb5.h>
@@ -49,10 +50,10 @@
 extern module AP_MODULE_DECLARE_DATA spnego_module;
 
 static const char *NEGOTIATE_NAME = "Negotiate";
-#ifdef HAVE_HEIMDAL
 static const char *NTLM_NAME = "NTLM";
-#endif
 static const char *WWW_AUTHENTICATE = "WWW-Authenticate";
+
+static gss_OID_desc ntlm_mechanism_oid = { 10, (void *)"\x2b\x06\x01\x04\x01\x82\x37\x02\x02\x0a" };
 
 #define SPNEGO_DEBUG(c, r, ...)                                  \
     do {                                                         \
@@ -69,6 +70,7 @@ typedef struct {
     unsigned int spnego_save_cred;
     char *spnego_krb5_acceptor_identity;
     unsigned int spnego_use_display_name;
+    int spnego_supports_ntlm;
     /* allowed mechs .... */
 } spnego_config;
 
@@ -107,6 +109,11 @@ static const command_rec spnego_cmds[] = {
         OR_AUTHCFG,
         "set to 'on' to make SPNEGO use display name instead of "
         "export name in REMOTE_USER"),
+    AP_INIT_FLAG("SPNEGOSupportsNTLM",
+         ap_set_flag_slot,
+         (void *)APR_OFFSETOF(spnego_config, spnego_supports_ntlm),
+         OR_AUTHCFG,
+         "set to 'off' to make SPNEGO not announce NTLM"),
     { NULL }
 };
 
@@ -114,6 +121,8 @@ static void *
 spnego_dir_config(apr_pool_t * p, char *d)
 {
     spnego_config *conf = (spnego_config *) apr_pcalloc(p, sizeof(spnego_config));
+    OM_uint32 minor, major;
+    gss_OID_set mechs = NULL;
 
     /* Set the defaults. */
 
@@ -122,6 +131,13 @@ spnego_dir_config(apr_pool_t * p, char *d)
     conf->spnego_save_cred = 0;
     conf->spnego_krb5_acceptor_identity = NULL;
     conf->spnego_use_display_name = 1;
+    conf->spnego_supports_ntlm = 0;
+
+    major = gss_indicate_mechs(&minor, &mechs);
+    if (major == 0) {
+        (void)gss_test_oid_set_member(&minor, &ntlm_mechanism_oid, mechs, &conf->spnego_supports_ntlm);
+        (void)gss_release_oid_set(&minor, &mechs);
+    }
 
     return conf;
 }
@@ -249,9 +265,8 @@ check_user_id(request_rec *r)
     if (p == NULL) {
         SPNEGO_DEBUG(c, r, "mod_spnego: no Authorization header");
         apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
-#ifdef HAVE_HEIMDAL
-        apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
-#endif
+        if (c->spnego_supports_ntlm)
+	    apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
         return HTTP_UNAUTHORIZED;
     }
 
@@ -259,25 +274,24 @@ check_user_id(request_rec *r)
     if (mech == NULL) {
         SPNEGO_DEBUG(c, r, "mod_spnego: Authorization header malformed");
         apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
-#ifdef HAVE_HEIMDAL
-        apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
-#endif
+        if (c->spnego_supports_ntlm)
+	    apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
         return HTTP_UNAUTHORIZED;
     }
 
-	int mechs_not_matched;
+    int mechs_not_matched;
 
-#ifdef HAVE_HEIMDAL
-    mechs_not_matched = strcmp(mech, NEGOTIATE_NAME) != 0 && strcmp(mech, NTLM_NAME) != 0;
-#else
     mechs_not_matched = strcmp(mech, NEGOTIATE_NAME) != 0;
-#endif
-	if (mechs_not_matched) {
+
+    if (mechs_not_matched && c->spnego_supports_ntlm)
+        mechs_not_matched = strcmp(mech, NTLM_NAME) != 0;
+
+    if (mechs_not_matched) {
         SPNEGO_DEBUG(c, r, "mod_spnego: auth not supported: %s", mech);
         apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NEGOTIATE_NAME);
-#ifdef HAVE_HEIMDAL
-        apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
-#endif
+	if (c->spnego_supports_ntlm)
+	    apr_table_addn(r->err_headers_out, WWW_AUTHENTICATE, NTLM_NAME);
+
         return HTTP_UNAUTHORIZED;
     }
 
